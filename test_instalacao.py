@@ -18,7 +18,7 @@ def test_imports():
     testes = {
         "telegram": "python-telegram-bot",
         "geopy": "geopy",
-        "python-dotenv": "python-dotenv",
+        "dotenv": "python-dotenv",
         "logging": "logging (stdlib)",
         "asyncio": "asyncio (stdlib)",
         "math": "math (stdlib)",
