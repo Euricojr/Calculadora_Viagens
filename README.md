@@ -19,11 +19,13 @@ Um bot de Telegram profissional para cálculo de preços de viagem com localiza�
 ## 🚀 Instalação
 
 ### 1. Clonar/Visitar o Repositório
+
 ```bash
 cd c:/Users/ddom1/Calculadora_Viagens
 ```
 
 ### 2. Criar Ambiente Virtual (Opcional, mas recomendado)
+
 ```bash
 python -m venv venv
 .\venv\Scripts\activate  # Windows
@@ -32,6 +34,7 @@ source venv/bin/activate  # Linux/Mac
 ```
 
 ### 3. Instalar Dependências
+
 ```bash
 pip install -r requirements.txt
 ```
@@ -39,11 +42,13 @@ pip install -r requirements.txt
 ## ⚙️ Configuração
 
 O token do bot já está configurado no arquivo:
+
 ```python
 TOKEN = "8305041771:AAHNthwbsa7ePECMIoXVdfjN0uqQHM1H5FI"
 ```
 
 Os preços estão configurados como:
+
 - **Taxa Fixa**: R$ 5,00
 - **Valor por KM**: R$ 2,50
 - **Valor por Minuto**: R$ 0,60
@@ -52,22 +57,27 @@ Os preços estão configurados como:
 ## 📱 Comandos do Bot
 
 ### /start
+
 Exibe mensagem de boas-vindas profissional com instruções de uso.
 
 ### /rota
+
 Calcula preço de uma rota entre dois endereços.
 
 **Formato**: `/rota Origem - Destino`
 
 **Exemplo**:
+
 ```
 /rota Rua Halfeld, Juiz de Fora - UFJF, Juiz de Fora
 ```
 
 ### Compartilhamento de Localização
+
 Envie sua localização (botão anexo do Telegram) para calcular a distância até a Praça Jaraguá.
 
 ### /help
+
 Mostra lista completa de comandos e dicas de uso.
 
 ## 🔧 Estrutura do Código
@@ -75,22 +85,26 @@ Mostra lista completa de comandos e dicas de uso.
 ### Funções Principais
 
 #### `calcular_distancia(endereco1, endereco2)`
+
 - Converte endereços em coordenadas usando geopy
 - Usa fórmula de Haversine para calcular distância real
 - Suporta strings (endereços) ou tuplas (coordenadas)
 - Retorna: (distância_km, endereco_completo_1, endereco_completo_2)
 
 #### `calcular_preco(distancia_km)`
+
 - Calcula tempo estimado: distância / 30 km/h
 - Aplica fórmula: Taxa Fixa + (km × valor/km) + (minutos × valor/min)
 - Retorna: (preço_total, tempo_estimado)
 
 #### `formatar_orcamento(...)`
+
 - Cria resposta elegante em formato de cartão
 - Inclui detalhamento de custos
 - Mostra modelo do carro e meios de pagamento
 
 #### Handlers de Comandos
+
 - `start()`: Boas-vindas
 - `rota()`: Processa comando /rota
 - `handle_location()`: Processa localização do usuário
@@ -99,6 +113,7 @@ Mostra lista completa de comandos e dicas de uso.
 ## 🌍 Geocodificação
 
 Usa **Nominatim (OpenStreetMap)** da biblioteca geopy:
+
 - User Agent: `meu_pai_premium_bot`
 - Nenhuma chave de API necessária
 - Respeita limite de requisições
@@ -107,6 +122,7 @@ Usa **Nominatim (OpenStreetMap)** da biblioteca geopy:
 ## 💳 Formatos de Saída
 
 ### Exemplo de Resposta
+
 ```
 ✨ ORÇAMENTO PREMIUM ✨
 
@@ -138,6 +154,7 @@ python bot_viagem.py
 ```
 
 Você verá a mensagem:
+
 ```
 🚀 Bot iniciado com sucesso!
 ```
@@ -174,6 +191,7 @@ NOME_LOCAL_PADRAO = "..."     # Nome do local padrão
 ## 📝 Logs
 
 Todos os eventos são registrados com timestamp:
+
 ```
 2026-02-09 10:30:45 - __main__ - INFO - 🚀 Bot iniciado com sucesso!
 2026-02-09 10:31:12 - __main__ - INFO - Usuário solicitou rota...
@@ -182,16 +200,19 @@ Todos os eventos são registrados com timestamp:
 ## 🚨 Troubleshooting
 
 ### "Origem não encontrada"
+
 - Verifique a grafia do endereço
 - Inclua a cidade no endereço
 - Tente um endereço mais específico (com número)
 
 ### "Erro ao conectar ao serviço de localização"
+
 - Verifique sua conexão com internet
 - Aguarde alguns segundos e tente novamente
 - O serviço Nominatim pode ter limite de requisições
 
 ### Bot não responde
+
 - Verifique se o token está correto
 - Confira se o bot está rodando (veja mensagem "🚀 Bot iniciado")
 - Reinicie o bot
@@ -204,3 +225,5 @@ Projeto criado para uso profissional em transporte.
 ## 👨‍💻 Desenvolvido com ❤️
 
 Bot completo para Telegram v20+ em Python
+
+taskkill /F /IM python.exe # para matar o processo do python

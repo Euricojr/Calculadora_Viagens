@@ -1,370 +1,222 @@
 import logging
 import os
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from geopy.geocoders import Nominatim
-from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+import sys
 from dotenv import load_dotenv
-import asyncio
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+    ConversationHandler,
+)
+from geopy.geocoders import Nominatim
+from geopy.distance import geodesic
 
+# Load environment variables
 load_dotenv()
 
-# Configuração de logging
+# Setup logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 logger = logging.getLogger(__name__)
 
-# Configurações
-TOKEN = os.getenv("TELEGRAM_TOKEN", "8305041771:AAHNthwbsa7ePECMIoXVdfjN0uqQHM1H5FI")
-USER_AGENT = "meu_pai_premium_bot"
+# Constants for Calculation
+BASE_PRICE = 5.00
+PRICE_PER_KM = 2.50
+PRICE_PER_MIN = 0.60
+AVG_SPEED_KMH = 30
 
-# Preços (Perfil Econômico)
-TAXA_FIXA = 5.00
-VALOR_POR_KM = 2.50
-VALOR_POR_MINUTO = 0.60
-VELOCIDADE_MEDIA = 30  # km/h para cidade
-LOCALIZACAO_PADRAO = (-21.7626, -43.3335)  # Praça Jaraguá, Juiz de Fora
-NOME_LOCAL_PADRAO = "Praça Jaraguá, Juiz de Fora"
-
-# Inicialização do geocodificador
-geolocator = Nominatim(user_agent=USER_AGENT, timeout=10)
-
-
-def _build_geocode_queries(query):
-    query = query.strip()
-    queries = [query]
-    if "Juiz de Fora" in query and "MG" not in query and "Minas" not in query:
-        queries.append(f"{query}, MG, Brasil")
-    if "Brasil" not in query and "Brazil" not in query:
-        queries.append(f"{query}, Brasil")
-    seen = set()
-    unique_queries = []
-    for item in queries:
-        if item not in seen:
-            unique_queries.append(item)
-            seen.add(item)
-    return unique_queries
-
-
-async def _geocode_with_fallback(query):
-    for candidate in _build_geocode_queries(query):
-        loc = await asyncio.to_thread(
-            geolocator.geocode,
-            candidate,
-            language="pt-BR",
-            exactly_one=True
-        )
-        if loc:
-            return loc
-    return None
-
-
-async def calcular_distancia(endereco1, endereco2):
-    """
-    Calcula a distância (em km) entre dois endereços usando geopy.
-    
-    Args:
-        endereco1 (str ou tuple): Primeiro endereço ou coordenadas (lat, lon)
-        endereco2 (str ou tuple): Segundo endereço ou coordenadas (lat, lon)
-    
-    Returns:
-        tuple: (distancia_km, endereco1_completo, endereco2_completo) ou None se falhar
-    """
-    try:
-        # Se for string, geocodificar
-        if isinstance(endereco1, str):
-            loc1 = await _geocode_with_fallback(endereco1)
-            if not loc1:
-                return None, f"Origem não encontrada: {endereco1}", None
-            coords1 = (loc1.latitude, loc1.longitude)
-            endereco1_nome = loc1.address
-        else:
-            coords1 = endereco1
-            endereco1_nome = NOME_LOCAL_PADRAO
-
-        if isinstance(endereco2, str):
-            loc2 = await _geocode_with_fallback(endereco2)
-            if not loc2:
-                return None, endereco1_nome, f"Destino não encontrado: {endereco2}"
-            coords2 = (loc2.latitude, loc2.longitude)
-            endereco2_nome = loc2.address
-        else:
-            coords2 = endereco2
-            endereco2_nome = NOME_LOCAL_PADRAO
-
-        # Usar fórmula de Haversine para calcular distância
-        from math import radians, sin, cos, sqrt, atan2
-        
-        lat1, lon1 = coords1
-        lat2, lon2 = coords2
-        
-        R = 6371  # Raio da Terra em km
-        
-        lat1_rad = radians(lat1)
-        lat2_rad = radians(lat2)
-        delta_lat = radians(lat2 - lat1)
-        delta_lon = radians(lon2 - lon1)
-        
-        a = sin(delta_lat / 2) ** 2 + cos(lat1_rad) * cos(lat2_rad) * sin(delta_lon / 2) ** 2
-        c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        distancia = R * c
-        
-        return distancia, endereco1_nome, endereco2_nome
-        
-    except (GeocoderTimedOut, GeocoderServiceError):
-        return None, "Erro ao conectar ao serviço de localização", None
-    except Exception as e:
-        logger.error(f"Erro ao calcular distância: {e}")
-        return None, f"Erro ao processar endereço: {str(e)}", None
-
-
-async def calcular_preco(distancia_km):
-    """
-    Calcula o preço da viagem baseado na distância.
-    
-    Args:
-        distancia_km (float): Distância em quilômetros
-    
-    Returns:
-        tuple: (preco, tempo_minutos)
-    """
-    tempo_horas = distancia_km / VELOCIDADE_MEDIA
-    tempo_minutos = tempo_horas * 60
-    
-    valor_km = distancia_km * VALOR_POR_KM
-    valor_tempo = tempo_minutos * VALOR_POR_MINUTO
-    preco_total = TAXA_FIXA + valor_km + valor_tempo
-    
-    return preco_total, tempo_minutos
-
-
-async def formatar_orcamento(origem, destino, distancia, preco, tempo):
-    """
-    Formata a resposta como um cartão de visita elegante.
-    
-    Args:
-        origem (str): Endereço de origem
-        destino (str): Endereço de destino
-        distancia (float): Distância em km
-        preco (float): Preço em R$
-        tempo (float): Tempo estimado em minutos
-    
-    Returns:
-        str: Mensagem formatada
-    """
-    modelo_carro = "Toyota Corolla XEi 2.0"  # Modelo padrão
-    
-    mensagem = f"""
-✨ ORÇAMENTO PREMIUM ✨
-
-📍 De: {origem}
-
-🏁 Para: {destino}
-
-📏 Distância: {distancia:.2f} km
-⏱️ Tempo estimado: {int(tempo)} minutos
-
-🚗 Veículo: {modelo_carro}
-
-💰 Detalhamento:
-   • Taxa fixa: R$ {TAXA_FIXA:.2f}
-   • Distância ({distancia:.2f} km × R$ {VALOR_POR_KM:.2f}): R$ {distancia * VALOR_POR_KM:.2f}
-   • Tempo ({int(tempo)} min × R$ {VALOR_POR_MINUTO:.2f}): R$ {tempo * VALOR_POR_MINUTO:.2f}
-
-💳 Valor Sugerido: R$ {preco:.2f}
-
-💳 Aceitamos Pix e Cartão
-
-Obrigado por usar nosso serviço! 🙏
-"""
-    return mensagem
-
+# Conversation States
+ORIGIN, DESTINATION = range(2)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler para o comando /start"""
-    usuario = update.effective_user.first_name or "Passageiro"
+    """Starts the conversation and shows the main menu button."""
+    logger.info("User %s started the conversation.", update.effective_user.first_name)
     
-    mensagem_boas_vindas = f"""
-👋 Bem-vindo ao CALCULADORA DE VIAGENS PREMIUM! 👋
-
-Olá {usuario}! 
-
-Somos uma plataforma inovadora de transporte que oferece:
-
-✅ Cálculo preciso de rotas
-✅ Preços justos e transparentes
-✅ Veículos de qualidade
-✅ Atendimento profissional
-
-🎯 Como usar:
-
-1️⃣ Use o comando /rota seguido do formato:
-   /rota Origem - Destino
-   
-   Exemplo: /rota Rua Halfeld, Juiz de Fora - UFJF, Juiz de Fora
-
-2️⃣ Ou compartilhe sua localização e usaremos a Praça Jaraguá como referência
-
-📍 Sua localização será usada como ponto de partida se você compartilhá-la
-
-Estamos prontos para calcular sua próxima viagem! 🚗
-"""
+    keyboard = [[KeyboardButton("🚀 Novo Orçamento")]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
     
-    await update.message.reply_text(mensagem_boas_vindas)
-
-
-async def rota(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler para o comando /rota"""
-    
-    # Verificar se foi fornecido um argumento
-    if not context.args:
-        await update.message.reply_text(
-            "❌ Uso incorreto!\n\n"
-            "Use: /rota Origem - Destino\n\n"
-            "Exemplo: /rota Rua Halfeld, Juiz de Fora - UFJF, Juiz de Fora"
-        )
-        return
-    
-    # Juntar os argumentos
-    rota_texto = " ".join(context.args)
-    
-    # Verificar se contém o separador " - "
-    if " - " not in rota_texto:
-        await update.message.reply_text(
-            "❌ Formato inválido!\n\n"
-            "Use: /rota Origem - Destino\n\n"
-            "Exemplo: /rota Rua Halfeld, Juiz de Fora - UFJF, Juiz de Fora"
-        )
-        return
-    
-    # Extrair origem e destino
-    partes = rota_texto.split(" - ", 1)
-    origem = partes[0].strip()
-    destino = partes[1].strip()
-    
-    # Enviar mensagem de processamento
-    mensagem_carregamento = await update.message.reply_text(
-        "⏳ Processando sua rota...\n"
-        "🔍 Buscando endereços e calculando distância..."
+    await update.message.reply_text(
+        "Olá! Eu sou o Bot de Viagens do seu pai.\n"
+        "Toque no botão abaixo para calcular uma viagem correta e segura!",
+        reply_markup=reply_markup
     )
-    
-    try:
-        # Calcular distância
-        distancia, endereco_origem, endereco_destino = await calcular_distancia(origem, destino)
-        
-        if distancia is None:
-            # Erro ao geocodificar
-            await mensagem_carregamento.edit_text(
-                f"❌ Erro ao processar a rota:\n\n"
-                f"{endereco_origem}\n"
-                f"{endereco_destino}"
-            )
-            return
-        
-        # Calcular preço
-        preco, tempo = await calcular_preco(distancia)
-        
-        # Formatar orcamento
-        orcamento = await formatar_orcamento(endereco_origem, endereco_destino, distancia, preco, tempo)
-        
-        # Editar mensagem com o resultado
-        await mensagem_carregamento.edit_text(orcamento)
-        
-    except Exception as e:
-        logger.error(f"Erro ao processar rota: {e}")
-        await mensagem_carregamento.edit_text(
-            f"❌ Erro ao processar sua solicitação:\n{str(e)}"
-        )
 
-
-async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler para mensagens de localização"""
+async def novo_orcamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Initiates the budget calculation flow."""
+    logger.info("User requested new budget.")
     
-    # Obter as coordenadas do usuário
-    localizacao_usuario = update.message.location
-    coords_usuario = (localizacao_usuario.latitude, localizacao_usuario.longitude)
+    # Keyboard to request location
+    keyboard = [[KeyboardButton("📍 Enviar minha localização atual", request_location=True)]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     
-    mensagem_carregamento = await update.message.reply_text(
-        "⏳ Processando sua localização...\n"
-        f"📍 Sua posição: {localizacao_usuario.latitude:.4f}, {localizacao_usuario.longitude:.4f}\n"
-        "🔍 Calculando distância até a Praça Jaraguá..."
+    await update.message.reply_text(
+        "Certo! Primeiro, **onde é o ponto de partida?**\n"
+        "Você pode escrever o endereço ou enviar sua localização clicando no botão abaixo.",
+        parse_mode="Markdown",
+        reply_markup=reply_markup
     )
-    
+    return ORIGIN
+
+async def get_origin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the origin input (Text or Location)."""
+    user = update.effective_user
+    message = update.message
+
+    if message.location:
+        # User sent GPS location
+        lat = message.location.latitude
+        lon = message.location.longitude
+        origin_coords = (lat, lon)
+        origin_address = "Localização GPS (Atual)"
+        logger.info("Origin received via GPS: %s", origin_coords)
+    else:
+        # User sent text
+        address_text = message.text
+        logger.info("Origin received via text: %s", address_text)
+        
+        geolocator = Nominatim(user_agent="bot_viagem_pai")
+        try:
+            location = geolocator.geocode(address_text, timeout=10)
+            if not location:
+                await message.reply_text("Não consegui encontrar esse endereço. Tente ser mais específico (ex: Rua X, Cidade Y).")
+                return ORIGIN
+            
+            origin_coords = (location.latitude, location.longitude)
+            origin_address = location.address
+            logger.info("Geocoded origin: %s -> %s", address_text, origin_coords)
+        except Exception as e:
+            logger.error("Error geocoding origin: %s", e)
+            await message.reply_text("Ocorreu um erro ao buscar o endereço. Tente novamente.")
+            return ORIGIN
+
+    # Save to context
+    context.user_data['origin_coords'] = origin_coords
+    context.user_data['origin_address'] = origin_address
+
+    await message.reply_text(
+        f"✅ Partida definida: *{origin_address}*\n\n"
+        "Agora, **onde é o destino?** (Digite o nome da rua, bairro ou cidade)",
+        parse_mode="Markdown",
+        reply_markup=ReplyKeyboardMarkup([[]], resize_keyboard=True) # Remove keyboard
+    )
+    return DESTINATION
+
+async def get_destination(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the destination input and performs calculation."""
+    message = update.message
+    destination_text = message.text
+    logger.info("Destination received: %s", destination_text)
+
+    geolocator = Nominatim(user_agent="bot_viagem_pai")
     try:
-        # Calcular distância do usuário até o local padrão
-        distancia, endereco_origem, endereco_destino = await calcular_distancia(
-            coords_usuario,
-            LOCALIZACAO_PADRAO
-        )
+        location = geolocator.geocode(destination_text, timeout=10)
+        if not location:
+            await message.reply_text("Não consegui encontrar o destino. Tente ser mais específico.")
+            return DESTINATION
         
-        if distancia is None:
-            await mensagem_carregamento.edit_text(
-                "❌ Erro ao processar sua localização. Tente novamente!"
-            )
-            return
-        
-        # Calcular preço
-        preco, tempo = await calcular_preco(distancia)
-        
-        # Formatar orcamento
-        orcamento = await formatar_orcamento(
-            f"Sua posição ({coords_usuario[0]:.4f}, {coords_usuario[1]:.4f})",
-            endereco_destino,
-            distancia,
-            preco,
-            tempo
-        )
-        
-        await mensagem_carregamento.edit_text(orcamento)
-        
+        dest_coords = (location.latitude, location.longitude)
+        dest_address = location.address
+        logger.info("Geocoded destination: %s -> %s", destination_text, dest_coords)
     except Exception as e:
-        logger.error(f"Erro ao processar localização: {e}")
-        await mensagem_carregamento.edit_text(
-            f"❌ Erro ao processar sua localização:\n{str(e)}"
-        )
+        logger.error("Error geocoding destination: %s", e)
+        await message.reply_text("Erro ao buscar destino. Tente novamente.")
+        return DESTINATION
 
+    # Calculation
+    origin_coords = context.user_data.get('origin_coords')
+    if not origin_coords:
+        await message.reply_text("Ocorreu um erro com o ponto de partida. Vamos recomeçar?")
+        return ConversationHandler.END
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler para o comando /help"""
-    mensagem = """
-📚 AJUDA - Comandos Disponíveis
+    # Distance in km
+    distance_km = geodesic(origin_coords, dest_coords).km
+    
+    # Estimated time (min) = (Distance / 30km/h) * 60 min
+    estimated_time_min = (distance_km / AVG_SPEED_KMH) * 60
+    
+    # Price
+    # Base R$ 5 + (2.5 * km) + (0.6 * min)
+    price_total = BASE_PRICE + (PRICE_PER_KM * distance_km) + (PRICE_PER_MIN * estimated_time_min)
 
-/start - Mensagem de boas-vindas
-/help - Esta mensagem
-/rota - Calcular preço de uma rota
-    Formato: /rota Origem - Destino
-    Exemplo: /rota Rua Halfeld, Juiz de Fora - UFJF, Juiz de Fora
+    # Rounding
+    distance_km = round(distance_km, 2)
+    estimated_time_min = int(round(estimated_time_min))
+    price_total = round(price_total, 2)
 
-📍 Compartilhamento de Localização:
-   Você também pode enviar sua localização (botão de localização no Telegram)
-   e calcularemos a distância até a Praça Jaraguá
+    logger.info("Calculation: Dist=%.2f km, Time=%d min, Price=R$ %.2f", distance_km, estimated_time_min, price_total)
 
-💡 Dicas:
-   • Seja específico com os endereços (rua, número, cidade)
-   • Use "-" para separar origem e destino
-   • A localização pode levar alguns segundos para processar
-"""
-    await update.message.reply_text(mensagem)
+    response = (
+        f"🏁 *Orçamento Calculado!* 🏁\n\n"
+        f"📍 *De:* {context.user_data.get('origin_address', 'Desconhecido')}\n"
+        f"🏁 *Para:* {dest_address}\n\n"
+        f"📏 *Distância:* {distance_km} km\n"
+        f"⏱️ *Tempo Estimado:* {estimated_time_min} min\n\n"
+        f"💰 *VALOR FINAL: R$ {price_total:.2f}*\n\n"
+        f"_Base R$ {BASE_PRICE:.2f} + Km R$ {PRICE_PER_KM:.2f} + Min R$ {PRICE_PER_MIN:.2f}_"
+    )
 
+    # Show "Novo Orçamento" button again
+    keyboard = [[KeyboardButton("🚀 Novo Orçamento")]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+    await message.reply_text(response, parse_mode="Markdown", reply_markup=reply_markup)
+    return ConversationHandler.END
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancels and ends the conversation."""
+    logger.info("Conversation canceled by user.")
+    await update.message.reply_text(
+        "Operação cancelada. Toque em 🚀 Novo Orçamento quando quiser.",
+        reply_markup=ReplyKeyboardMarkup([[KeyboardButton("🚀 Novo Orçamento")]], resize_keyboard=True)
+    )
+    return ConversationHandler.END
 
 def main():
-    """Função principal para iniciar o bot"""
-    
-    # Criar application
-    application = Application.builder().token(TOKEN).build()
-    
-    # Adicionar handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("rota", rota))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(MessageHandler(filters.LOCATION, handle_location))
-    
-    # Iniciar o bot
-    logger.info("🚀 Bot iniciado com sucesso!")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    """Start the bot."""
+    token = os.getenv("TELEGRAM_TOKEN")
+    if not token or "TOKEN" in token and "AQUI" in token: # Simple check for placeholder
+        logger.error("Error: TELEGRAM_TOKEN not found in .env or is a placeholder.")
+        print("ERRO: Configure o TELEGRAM_TOKEN no arquivo .env antes de rodar!")
+        return
 
+    logger.info("Starting bot...")
+    
+    try:
+        application = ApplicationBuilder().token(token).build()
+
+        conv_handler = ConversationHandler(
+            entry_points=[
+                MessageHandler(filters.Regex("^🚀 Novo Orçamento$"), novo_orcamento),
+                CommandHandler("novo", novo_orcamento)
+            ],
+            states={
+                ORIGIN: [
+                    MessageHandler(filters.LOCATION, get_origin),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, get_origin)
+                ],
+                DESTINATION: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, get_destination)
+                ]
+            },
+            fallbacks=[CommandHandler("cancel", cancel)]
+        )
+
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(conv_handler)
+
+        logger.info("Bot is polling...")
+        application.run_polling()
+        
+    except Exception as e:
+        logger.critical("Failed to start bot: %s", e, exc_info=True)
 
 if __name__ == "__main__":
     main()
