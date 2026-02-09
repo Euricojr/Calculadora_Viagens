@@ -3,7 +3,7 @@ import os
 import sys
 import math
 from dotenv import load_dotenv
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -27,13 +27,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants for Calculation
-BASE_PRICE = 5.00
-PRICE_PER_KM = 2.50
-PRICE_PER_MIN = 0.60
+BASE_PRICE = 5.50
+PRICE_PER_KM = 2.30
+PRICE_PER_MIN = 0.45
+MINIMUM_FARE = 10.00
 CAR_MODEL = "Toyota Yaris"
 
 # Conversation States
-DISTANCIA, TEMPO = range(2)
+DISTANCIA, TEMPO, CONDICAO = range(3)
 
 def round_to_nearest_50_cents(amount):
     """Rounds the amount to the nearest 0.50"""
@@ -43,16 +44,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Starts the conversation and shows the main menu button."""
     logger.info("User %s started the conversation.", update.effective_user.first_name)
     
+    # Force reset keyboard (just in case)
+    temp_msg = await update.message.reply_text("🔄...", reply_markup=ReplyKeyboardRemove())
+    try:
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=temp_msg.message_id)
+    except:
+        pass
+
     keyboard = [[KeyboardButton("🚀 Novo Orçamento")]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
         resize_keyboard=True, 
-        is_persistent=True,
-        input_field_placeholder="Clique no botão abaixo 👇"
+        is_persistent=True
     )
     
     await update.message.reply_text(
         "👋 **Bot de Viagens Premium**\n\n"
+        f"🚗 Carro: **{CAR_MODEL}**\n"
         "Toque no botão **'🚀 Novo Orçamento'** abaixo para começar.",
         reply_markup=reply_markup,
         parse_mode="Markdown"
@@ -66,7 +74,7 @@ async def novo_orcamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
         resize_keyboard=True, 
-        input_field_placeholder="Digite a distância..."
+        one_time_keyboard=True
     )
 
     await update.message.reply_text(
@@ -84,39 +92,38 @@ async def get_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await cancel(update, context)
         
     try:
-        # Replace comma with dot for conversion
         clean_text = text.replace(',', '.')
         distance = float(clean_text)
         
         if distance < 0:
-             await update.message.reply_text("⛔ A distância não pode ser negativa. Tente novamente.")
+             await update.message.reply_text("⛔ Valor inválido. Tente novamente.")
              return DISTANCIA
 
         context.user_data['distance'] = distance
-        logger.info("Distance received: %.2f km", distance)
+        logger.info("Distance: %.2f km", distance)
 
         keyboard = [[KeyboardButton("❌ Cancelar")]]
         reply_markup = ReplyKeyboardMarkup(
             keyboard, 
-            resize_keyboard=True, 
-            input_field_placeholder="Digite os minutos..."
+            resize_keyboard=True,
+            one_time_keyboard=True
         )
 
         await update.message.reply_text(
             f"✅ **Distância:** {distance} km\n\n"
             "⏱️ **Qual o Tempo?**\n"
-            "Digite quantos **minutos** vai levar (ex: 15 ou 20).",
+            "Digite quantos **minutos** vai levar.",
             parse_mode="Markdown",
             reply_markup=reply_markup
         )
         return TEMPO
 
     except ValueError:
-        await update.message.reply_text("⚠️ Por favor, digite apenas números (ex: 5.2).")
+        await update.message.reply_text("⚠️ Digite apenas números (ex: 5.2).")
         return DISTANCIA
 
 async def get_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the time input and calculates price."""
+    """Handles the time input."""
     text = update.message.text
     if text == "❌ Cancelar":
         return await cancel(update, context)
@@ -126,52 +133,105 @@ async def get_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         minutes = float(clean_text)
         
         if minutes < 0:
-             await update.message.reply_text("⛔ O tempo não pode ser negativo. Tente novamente.")
+             await update.message.reply_text("⛔ Valor inválido.")
              return TEMPO
 
-        logger.info("Time received: %.2f min", minutes)
+        context.user_data['minutes'] = minutes
+        logger.info("Time: %.2f min", minutes)
         
-        distance = context.user_data['distance']
-        
-        # Calculate Logic
-        # R$ 5,00 base + R$ 2,50/km + R$ 0,60/min
-        raw_price = BASE_PRICE + (PRICE_PER_KM * distance) + (PRICE_PER_MIN * minutes)
-        
-        # Rounding logic (Ceil to nearest 0.50 usually better for simple payments, 
-        # or simple round logic. User asked for "nearest", let's standard round half up to nearest 0.50 or just use general rounding logic provided) 
-        # Requirement: "arredondar o valor final para os 50 centavos mais próximos"
-        # Logic: round(X / 0.5) * 0.5
-        final_price = round(raw_price * 2) / 2
-        
-        # Formatting
-        price_fmt = f"{final_price:.2f}".replace('.', ',')
-        raw_price_fmt = f"{raw_price:.2f}".replace('.', ',')
-        
-        response = (
-            f"🚘 **ORÇAMENTO PREMIUM** 🚘\n"
-            f"🏎️ _Veículo: {CAR_MODEL}_\n\n"
-            f"📏 **Distância:** {distance} km\n"
-            f"⏱️ **Tempo:** {minutes:.0f} min\n"
-            f"───────────────────\n"
-            f"💰 **TOTAL: R$ {price_fmt}**\n"
-            f"───────────────────\n"
-            f"_(Cálculo exato seria R$ {raw_price_fmt})_"
-        )
-        
-        # Reset Keyboard
-        keyboard = [[KeyboardButton("🚀 Novo Orçamento")]]
+        # Ask for Condition
+        keyboard = [
+            [KeyboardButton("☀️ Normal (1.0x)")],
+            [KeyboardButton("🌧️ Chuva/Noite (1.2x)")],
+            [KeyboardButton("🚦 Trânsito Pesado (1.4x)")],
+            [KeyboardButton("❌ Cancelar")]
+        ]
         reply_markup = ReplyKeyboardMarkup(
             keyboard, 
             resize_keyboard=True, 
-            is_persistent=True
+            one_time_keyboard=True
         )
 
-        await update.message.reply_text(response, parse_mode="Markdown", reply_markup=reply_markup)
-        return ConversationHandler.END
+        await update.message.reply_text(
+            "🌤️ **Como está o trânsito/clima?**\n\n"
+            "Selecione uma opção abaixo para ajustar o preço:",
+            parse_mode="Markdown",
+            reply_markup=reply_markup
+        )
+        return CONDICAO
 
     except ValueError:
-        await update.message.reply_text("⚠️ Por favor, digite apenas números para os minutos.")
+        await update.message.reply_text("⚠️ Digite apenas números.")
         return TEMPO
+
+async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Calculates the final price based on condition."""
+    text = update.message.text
+    if text == "❌ Cancelar":
+        return await cancel(update, context)
+
+    # Determine Multiplier
+    multiplier = 1.0
+    condition_name = "Normal"
+    
+    if "Chuva" in text or "Noite" in text or "1.2" in text:
+        multiplier = 1.2
+        condition_name = "Chuva/Noite 🌧️"
+    elif "Trânsito" in text or "1.4" in text:
+        multiplier = 1.4
+        condition_name = "Trânsito Pesado 🚦"
+    elif "Normal" in text:
+        multiplier = 1.0
+        condition_name = "Normal ☀️"
+    else:
+        # If user types something else, assume Normal or ask again? 
+        # Let's assume Normal to not block, or ask again. 
+        # Better to ask again for clarity.
+        await update.message.reply_text("⚠️ Por favor, selecione uma das opções do menu.")
+        return CONDICAO
+
+    distance = context.user_data['distance']
+    minutes = context.user_data['minutes']
+
+    # Logic: Base R$ 5,50 + (KM * 2,30) + (Min * 0,45)
+    base_calc = BASE_PRICE + (PRICE_PER_KM * distance) + (PRICE_PER_MIN * minutes)
+    
+    # Apply Multiplier
+    total_with_multiplier = base_calc * multiplier
+    
+    # Apply Minimum Fare
+    final_raw = max(total_with_multiplier, MINIMUM_FARE)
+    
+    # Round to nearest 0.50
+    final_price = round_to_nearest_50_cents(final_raw)
+    
+    # Formatting
+    price_fmt = f"{final_price:.2f}".replace('.', ',')
+    multiplier_fmt = f"{multiplier}x"
+    
+    response = (
+        f"🚘 **ORÇAMENTO PREMIUM** 🚘\n"
+        f"🏎️ _Veículo: {CAR_MODEL}_\n"
+        f"───────────────────\n"
+        f"📏 **Distância:** {distance} km\n"
+        f"⏱️ **Tempo:** {minutes:.0f} min\n"
+        f"📊 **Condição:** {condition_name}\n"
+        f"───────────────────\n"
+        f"💰 **TOTAL: R$ {price_fmt}**\n"
+        f"───────────────────\n"
+        f"_(Tarifa Mínima: R$ {MINIMUM_FARE:.2f} | Fator: {multiplier_fmt})_"
+    )
+    
+    # Reset Keyboard
+    keyboard = [[KeyboardButton("🚀 Novo Orçamento")]]
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard, 
+        resize_keyboard=True, 
+        is_persistent=True
+    )
+
+    await update.message.reply_text(response, parse_mode="Markdown", reply_markup=reply_markup)
+    return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancels and ends the conversation."""
@@ -182,7 +242,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resize_keyboard=True, 
         is_persistent=True
     )
-    await update.message.reply_text("🚫 **Operação Cancelada.**\nToque no botão abaixo para reiniciar.", parse_mode="Markdown", reply_markup=reply_markup)
+    await update.message.reply_text("🚫 **Operação Cancelada.**", parse_mode="Markdown", reply_markup=reply_markup)
     return ConversationHandler.END
 
 def main():
@@ -212,6 +272,10 @@ def main():
                     MessageHandler(filters.Regex("^❌ Cancelar$"), cancel),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, get_time)
                 ],
+                CONDICAO: [
+                    MessageHandler(filters.Regex("^❌ Cancelar$"), cancel),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, calculate_final)
+                ]
             },
             fallbacks=[CommandHandler("cancel", cancel)]
         )
