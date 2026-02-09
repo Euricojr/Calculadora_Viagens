@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import math
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
@@ -11,8 +12,6 @@ from telegram.ext import (
     filters,
     ConversationHandler,
 )
-from geopy.geocoders import Nominatim
-from geopy.distance import geodesic
 
 # Load environment variables
 load_dotenv()
@@ -31,160 +30,167 @@ logger = logging.getLogger(__name__)
 BASE_PRICE = 5.00
 PRICE_PER_KM = 2.50
 PRICE_PER_MIN = 0.60
-AVG_SPEED_KMH = 30
+CAR_MODEL = "Toyota Yaris"
 
 # Conversation States
-ORIGIN, DESTINATION = range(2)
+DISTANCIA, TEMPO = range(2)
+
+def round_to_nearest_50_cents(amount):
+    """Rounds the amount to the nearest 0.50"""
+    return math.ceil(amount * 2) / 2
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Starts the conversation and shows the main menu button."""
     logger.info("User %s started the conversation.", update.effective_user.first_name)
     
     keyboard = [[KeyboardButton("🚀 Novo Orçamento")]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard, 
+        resize_keyboard=True, 
+        is_persistent=True,
+        input_field_placeholder="Clique no botão abaixo 👇"
+    )
     
     await update.message.reply_text(
-        "Olá! Eu sou o Bot de Viagens do seu pai.\n"
-        "Toque no botão abaixo para calcular uma viagem correta e segura!",
-        reply_markup=reply_markup
+        "👋 **Bot de Viagens Premium**\n\n"
+        "Toque no botão **'🚀 Novo Orçamento'** abaixo para começar.",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
     )
 
 async def novo_orcamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Initiates the budget calculation flow."""
     logger.info("User requested new budget.")
     
-    # Keyboard to request location
-    keyboard = [[KeyboardButton("📍 Enviar minha localização atual", request_location=True)]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-    
+    keyboard = [[KeyboardButton("❌ Cancelar")]]
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard, 
+        resize_keyboard=True, 
+        input_field_placeholder="Digite a distância..."
+    )
+
     await update.message.reply_text(
-        "Certo! Primeiro, **onde é o ponto de partida?**\n"
-        "Você pode escrever o endereço ou enviar sua localização clicando no botão abaixo.",
+        "📏 **Qual a Distância?**\n\n"
+        "Digite quantos **KM** tem a corrida (ex: 4.5 ou 12).",
         parse_mode="Markdown",
         reply_markup=reply_markup
     )
-    return ORIGIN
+    return DISTANCIA
 
-async def get_origin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the origin input (Text or Location)."""
-    user = update.effective_user
-    message = update.message
-
-    if message.location:
-        # User sent GPS location
-        lat = message.location.latitude
-        lon = message.location.longitude
-        origin_coords = (lat, lon)
-        origin_address = "Localização GPS (Atual)"
-        logger.info("Origin received via GPS: %s", origin_coords)
-    else:
-        # User sent text
-        address_text = message.text
-        logger.info("Origin received via text: %s", address_text)
+async def get_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the distance input."""
+    text = update.message.text
+    if text == "❌ Cancelar":
+        return await cancel(update, context)
         
-        geolocator = Nominatim(user_agent="bot_viagem_pai")
-        try:
-            location = geolocator.geocode(address_text, timeout=10)
-            if not location:
-                await message.reply_text("Não consegui encontrar esse endereço. Tente ser mais específico (ex: Rua X, Cidade Y).")
-                return ORIGIN
-            
-            origin_coords = (location.latitude, location.longitude)
-            origin_address = location.address
-            logger.info("Geocoded origin: %s -> %s", address_text, origin_coords)
-        except Exception as e:
-            logger.error("Error geocoding origin: %s", e)
-            await message.reply_text("Ocorreu um erro ao buscar o endereço. Tente novamente.")
-            return ORIGIN
-
-    # Save to context
-    context.user_data['origin_coords'] = origin_coords
-    context.user_data['origin_address'] = origin_address
-
-    await message.reply_text(
-        f"✅ Partida definida: *{origin_address}*\n\n"
-        "Agora, **onde é o destino?** (Digite o nome da rua, bairro ou cidade)",
-        parse_mode="Markdown",
-        reply_markup=ReplyKeyboardMarkup([[]], resize_keyboard=True) # Remove keyboard
-    )
-    return DESTINATION
-
-async def get_destination(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the destination input and performs calculation."""
-    message = update.message
-    destination_text = message.text
-    logger.info("Destination received: %s", destination_text)
-
-    geolocator = Nominatim(user_agent="bot_viagem_pai")
     try:
-        location = geolocator.geocode(destination_text, timeout=10)
-        if not location:
-            await message.reply_text("Não consegui encontrar o destino. Tente ser mais específico.")
-            return DESTINATION
+        # Replace comma with dot for conversion
+        clean_text = text.replace(',', '.')
+        distance = float(clean_text)
         
-        dest_coords = (location.latitude, location.longitude)
-        dest_address = location.address
-        logger.info("Geocoded destination: %s -> %s", destination_text, dest_coords)
-    except Exception as e:
-        logger.error("Error geocoding destination: %s", e)
-        await message.reply_text("Erro ao buscar destino. Tente novamente.")
-        return DESTINATION
+        if distance < 0:
+             await update.message.reply_text("⛔ A distância não pode ser negativa. Tente novamente.")
+             return DISTANCIA
 
-    # Calculation
-    origin_coords = context.user_data.get('origin_coords')
-    if not origin_coords:
-        await message.reply_text("Ocorreu um erro com o ponto de partida. Vamos recomeçar?")
+        context.user_data['distance'] = distance
+        logger.info("Distance received: %.2f km", distance)
+
+        keyboard = [[KeyboardButton("❌ Cancelar")]]
+        reply_markup = ReplyKeyboardMarkup(
+            keyboard, 
+            resize_keyboard=True, 
+            input_field_placeholder="Digite os minutos..."
+        )
+
+        await update.message.reply_text(
+            f"✅ **Distância:** {distance} km\n\n"
+            "⏱️ **Qual o Tempo?**\n"
+            "Digite quantos **minutos** vai levar (ex: 15 ou 20).",
+            parse_mode="Markdown",
+            reply_markup=reply_markup
+        )
+        return TEMPO
+
+    except ValueError:
+        await update.message.reply_text("⚠️ Por favor, digite apenas números (ex: 5.2).")
+        return DISTANCIA
+
+async def get_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the time input and calculates price."""
+    text = update.message.text
+    if text == "❌ Cancelar":
+        return await cancel(update, context)
+
+    try:
+        clean_text = text.replace(',', '.')
+        minutes = float(clean_text)
+        
+        if minutes < 0:
+             await update.message.reply_text("⛔ O tempo não pode ser negativo. Tente novamente.")
+             return TEMPO
+
+        logger.info("Time received: %.2f min", minutes)
+        
+        distance = context.user_data['distance']
+        
+        # Calculate Logic
+        # R$ 5,00 base + R$ 2,50/km + R$ 0,60/min
+        raw_price = BASE_PRICE + (PRICE_PER_KM * distance) + (PRICE_PER_MIN * minutes)
+        
+        # Rounding logic (Ceil to nearest 0.50 usually better for simple payments, 
+        # or simple round logic. User asked for "nearest", let's standard round half up to nearest 0.50 or just use general rounding logic provided) 
+        # Requirement: "arredondar o valor final para os 50 centavos mais próximos"
+        # Logic: round(X / 0.5) * 0.5
+        final_price = round(raw_price * 2) / 2
+        
+        # Formatting
+        price_fmt = f"{final_price:.2f}".replace('.', ',')
+        raw_price_fmt = f"{raw_price:.2f}".replace('.', ',')
+        
+        response = (
+            f"🚘 **ORÇAMENTO PREMIUM** 🚘\n"
+            f"🏎️ _Veículo: {CAR_MODEL}_\n\n"
+            f"📏 **Distância:** {distance} km\n"
+            f"⏱️ **Tempo:** {minutes:.0f} min\n"
+            f"───────────────────\n"
+            f"💰 **TOTAL: R$ {price_fmt}**\n"
+            f"───────────────────\n"
+            f"_(Cálculo exato seria R$ {raw_price_fmt})_"
+        )
+        
+        # Reset Keyboard
+        keyboard = [[KeyboardButton("🚀 Novo Orçamento")]]
+        reply_markup = ReplyKeyboardMarkup(
+            keyboard, 
+            resize_keyboard=True, 
+            is_persistent=True
+        )
+
+        await update.message.reply_text(response, parse_mode="Markdown", reply_markup=reply_markup)
         return ConversationHandler.END
 
-    # Distance in km
-    distance_km = geodesic(origin_coords, dest_coords).km
-    
-    # Estimated time (min) = (Distance / 30km/h) * 60 min
-    estimated_time_min = (distance_km / AVG_SPEED_KMH) * 60
-    
-    # Price
-    # Base R$ 5 + (2.5 * km) + (0.6 * min)
-    price_total = BASE_PRICE + (PRICE_PER_KM * distance_km) + (PRICE_PER_MIN * estimated_time_min)
-
-    # Rounding
-    distance_km = round(distance_km, 2)
-    estimated_time_min = int(round(estimated_time_min))
-    price_total = round(price_total, 2)
-
-    logger.info("Calculation: Dist=%.2f km, Time=%d min, Price=R$ %.2f", distance_km, estimated_time_min, price_total)
-
-    response = (
-        f"🏁 *Orçamento Calculado!* 🏁\n\n"
-        f"📍 *De:* {context.user_data.get('origin_address', 'Desconhecido')}\n"
-        f"🏁 *Para:* {dest_address}\n\n"
-        f"📏 *Distância:* {distance_km} km\n"
-        f"⏱️ *Tempo Estimado:* {estimated_time_min} min\n\n"
-        f"💰 *VALOR FINAL: R$ {price_total:.2f}*\n\n"
-        f"_Base R$ {BASE_PRICE:.2f} + Km R$ {PRICE_PER_KM:.2f} + Min R$ {PRICE_PER_MIN:.2f}_"
-    )
-
-    # Show "Novo Orçamento" button again
-    keyboard = [[KeyboardButton("🚀 Novo Orçamento")]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-    await message.reply_text(response, parse_mode="Markdown", reply_markup=reply_markup)
-    return ConversationHandler.END
+    except ValueError:
+        await update.message.reply_text("⚠️ Por favor, digite apenas números para os minutos.")
+        return TEMPO
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancels and ends the conversation."""
-    logger.info("Conversation canceled by user.")
-    await update.message.reply_text(
-        "Operação cancelada. Toque em 🚀 Novo Orçamento quando quiser.",
-        reply_markup=ReplyKeyboardMarkup([[KeyboardButton("🚀 Novo Orçamento")]], resize_keyboard=True)
+    logger.info("User canceled conversation.")
+    keyboard = [[KeyboardButton("🚀 Novo Orçamento")]]
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard, 
+        resize_keyboard=True, 
+        is_persistent=True
     )
+    await update.message.reply_text("🚫 **Operação Cancelada.**\nToque no botão abaixo para reiniciar.", parse_mode="Markdown", reply_markup=reply_markup)
     return ConversationHandler.END
 
 def main():
     """Start the bot."""
     token = os.getenv("TELEGRAM_TOKEN")
-    if not token or "TOKEN" in token and "AQUI" in token: # Simple check for placeholder
-        logger.error("Error: TELEGRAM_TOKEN not found in .env or is a placeholder.")
-        print("ERRO: Configure o TELEGRAM_TOKEN no arquivo .env antes de rodar!")
+    if not token or "NOVO_TOKEN_AQUI" in token:
+        logger.error("TELEGRAM_TOKEN env var is missing or invalid.")
+        print("❌ ERRO CRÍTICO: Token não configurado no arquivo .env!")
         return
 
     logger.info("Starting bot...")
@@ -198,25 +204,28 @@ def main():
                 CommandHandler("novo", novo_orcamento)
             ],
             states={
-                ORIGIN: [
-                    MessageHandler(filters.LOCATION, get_origin),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, get_origin)
+                DISTANCIA: [
+                    MessageHandler(filters.Regex("^❌ Cancelar$"), cancel),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, get_distance)
                 ],
-                DESTINATION: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, get_destination)
-                ]
+                TEMPO: [
+                    MessageHandler(filters.Regex("^❌ Cancelar$"), cancel),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, get_time)
+                ],
             },
             fallbacks=[CommandHandler("cancel", cancel)]
         )
-
+        
         application.add_handler(CommandHandler("start", start))
         application.add_handler(conv_handler)
 
         logger.info("Bot is polling...")
+        print("LOG: Bot is polling... Press Ctrl+C to stop.")
         application.run_polling()
         
     except Exception as e:
-        logger.critical("Failed to start bot: %s", e, exc_info=True)
+        logger.critical("Failed to start bot: %s", e)
+        print(f"LOG: Failed to start: {e}")
 
 if __name__ == "__main__":
     main()
