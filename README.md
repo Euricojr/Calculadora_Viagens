@@ -1,229 +1,113 @@
 # 🚗 Calculadora de Viagens - Bot Telegram Premium
 
-Um bot de Telegram profissional para cálculo de preços de viagem com localização em tempo real.
+Um bot de Telegram simples e **rápido** para cálculo manual de preços de viagens, ideal para orçamentos de corridas particulares.
 
-## 🎯 Funcionalidades
+---
 
-✨ **Cálculo de Rotas**: Calcula distância real entre endereços usando geopy
-💰 **Preços Transparentes**: Mostra detalhamento completo (taxa fixa + km + minutos)
-📍 **Suporte a Localização**: Integra compartilhamento de localização do Telegram
-🚗 **Formatação Premium**: Respostas elegantes em cartão de visita
-🛡️ **Tratamento de Erros**: Valida endereços e comunica problemas claramente
+## 🎯 **Novidades e Ajustes (Fev/2026)**
 
-## 📋 Requisitos
+O bot foi atualizado para simplificar o uso:
 
-- Python 3.8+
-- Conexão com internet
-- Token de Bot do Telegram
+- **Sem GPS**: Agora você digita a distância e o tempo diretamente. Mais rápido e sem falhas de localização.
+- **Botões Grandes**: Interface pensada para facilidade de uso no celular.
+- **Preços de Mercado**: Valores ajustados para competir com apps (UberX/99Pop) mantendo lucro justo.
 
-## 🚀 Instalação
+---
 
-### 1. Clonar/Visitar o Repositório
+## 💰 **Tabela de Preços**
 
-```bash
-cd c:/Users/ddom1/Calculadora_Viagens
-```
+Os valores foram configurados para garantir competitividade e segurança:
 
-### 2. Criar Ambiente Virtual (Opcional, mas recomendado)
+| Item              | Valor        | Descrição                            |
+| :---------------- | :----------- | :----------------------------------- |
+| **Taxa Base**     | **R$ 3,00**  | Valor fixo ao iniciar a corrida      |
+| **Km Rodado**     | **R$ 1,25**  | Custo por quilômetro                 |
+| **Minuto**        | **R$ 0,20**  | Custo pelo tempo de viagem           |
+| **Tarifa Mínima** | **R$ 10,00** | Nenhuma corrida custa menos que isso |
 
-```bash
-python -m venv venv
-.\venv\Scripts\activate  # Windows
-# ou
-source venv/bin/activate  # Linux/Mac
-```
+### ⚡ **Multiplicadores Dinâmicos**
 
-### 3. Instalar Dependências
+Você pode aplicar taxas extras dependendo da situação:
 
-```bash
-pip install -r requirements.txt
-```
+1. **☀️ Normal (1.0x)**: Preço padrão da tabela.
+2. **🌧️ Chuva/Noite (1.2x)**: Acréscimo de 20% no valor final.
+3. **🚦 Trânsito Pesado (1.4x)**: Acréscimo de 40% (lucro extra).
 
-## ⚙️ Configuração
+---
 
-O token do bot já está configurado no arquivo:
+## 🚀 **Como Usar**
 
-```python
-TOKEN = "8305041771:AAHNthwbsa7ePECMIoXVdfjN0uqQHM1H5FI"
-```
+1. **Inicie o Bot**:
+   Envie `/start` ou clique em **🚀 Novo Orçamento**.
 
-Os preços estão configurados como:
+2. **Informe a Distância**:
+   O bot perguntará: _"Qual a Distância?"_
+   Digite apenas os números, ex: `5.6` ou `12`.
 
-- **Taxa Fixa**: R$ 5,00
-- **Valor por KM**: R$ 2,50
-- **Valor por Minuto**: R$ 0,60
-- **Velocidade Média**: 30 km/h (para cidades)
+3. **Informe o Tempo**:
+   O bot perguntará: _"Qual o Tempo?"_
+   Digite os minutos estimados, ex: `15` ou `20`.
 
-## 📱 Comandos do Bot
+4. **Escolha a Condição**:
+   Um menu aparecerá com as opções:
+   - ☀️ Normal
+   - 🌧️ Chuva/Noite
+   - 🚦 Trânsito
 
-### /start
+5. **Resultado**:
+   O bot envia um **Cartão de Orçamento** formatado e pronto para encaminhar ao cliente.
 
-Exibe mensagem de boas-vindas profissional com instruções de uso.
+   > **Exemplo Prático**:
+   > Corrida de **5.6km** em **15min** no modo Normal:
+   > `3.00 + (1.25 * 5.6) + (0.20 * 15) = R$ 13.00`
 
-### /rota
+---
 
-Calcula preço de uma rota entre dois endereços.
+## ⚙️ **Instalação e Execução**
 
-**Formato**: `/rota Origem - Destino`
+### 1. Requisitos
 
-**Exemplo**:
+- Python 3.8+ instalado
+- Arquivo `.env` configurado com seu `TELEGRAM_TOKEN`
 
-```
-/rota Rua Halfeld, Juiz de Fora - UFJF, Juiz de Fora
-```
+### 2. Rodando o Bot
 
-### Compartilhamento de Localização
-
-Envie sua localização (botão anexo do Telegram) para calcular a distância até a Praça Jaraguá.
-
-### /help
-
-Mostra lista completa de comandos e dicas de uso.
-
-## 🔧 Estrutura do Código
-
-### Funções Principais
-
-#### `calcular_distancia(endereco1, endereco2)`
-
-- Converte endereços em coordenadas usando geopy
-- Usa fórmula de Haversine para calcular distância real
-- Suporta strings (endereços) ou tuplas (coordenadas)
-- Retorna: (distância_km, endereco_completo_1, endereco_completo_2)
-
-#### `calcular_preco(distancia_km)`
-
-- Calcula tempo estimado: distância / 30 km/h
-- Aplica fórmula: Taxa Fixa + (km × valor/km) + (minutos × valor/min)
-- Retorna: (preço_total, tempo_estimado)
-
-#### `formatar_orcamento(...)`
-
-- Cria resposta elegante em formato de cartão
-- Inclui detalhamento de custos
-- Mostra modelo do carro e meios de pagamento
-
-#### Handlers de Comandos
-
-- `start()`: Boas-vindas
-- `rota()`: Processa comando /rota
-- `handle_location()`: Processa localização do usuário
-- `help_command()`: Exibe ajuda
-
-## 🌍 Geocodificação
-
-Usa **Nominatim (OpenStreetMap)** da biblioteca geopy:
-
-- User Agent: `meu_pai_premium_bot`
-- Nenhuma chave de API necessária
-- Respeita limite de requisições
-- Trata timeouts e erros graciosamente
-
-## 💳 Formatos de Saída
-
-### Exemplo de Resposta
-
-```
-✨ ORÇAMENTO PREMIUM ✨
-
-📍 De: Rua Halfeld, 123 - Juiz de Fora, MG
-
-🏁 Para: Universidade Federal de Juiz de Fora - Juiz de Fora, MG
-
-📏 Distância: 5.42 km
-⏱️ Tempo estimado: 11 minutos
-
-🚗 Veículo: Toyota Corolla XEi 2.0
-
-💰 Detalhamento:
-   • Taxa fixa: R$ 5.00
-   • Distância (5.42 km × R$ 2.50): R$ 13.55
-   • Tempo (11 min × R$ 0.60): R$ 6.60
-
-💳 Valor Sugerido: R$ 25.15
-
-💳 Aceitamos Pix e Cartão
-
-Obrigado por usar nosso serviço! 🙏
-```
-
-## 🏃 Executar o Bot
+No terminal (dentro da pasta do projeto):
 
 ```bash
+# Ativar ambiente virtual (se houver)
+.\venv\Scripts\activate
+
+# Executar
 python bot_viagem.py
 ```
 
-Você verá a mensagem:
+### 3. Manter Rodando
 
-```
-🚀 Bot iniciado com sucesso!
-```
+Para parar o bot, use `Ctrl + C` no terminal.
 
-Agora o bot está pronto para receber mensagens no Telegram!
+---
 
-## 🐛 Tratamento de Erros
+## 🛠️ **Configuração Técnica**
 
-- ✅ Endereço não encontrado: Mensagem clara informando qual endereço falhou
-- ✅ Timeout de geocodificação: Comunica erro de conexão
-- ✅ Formato de comando inválido: Sugere formato correto
-- ✅ Erros gerais: Log detalhado para debugging
-
-## 📊 Variáveis Configuráveis
-
-Modifique estas constantes no inicio do arquivo para ajustar:
+O arquivo principal é `bot_viagem.py`. As constantes de preço estão no topo do arquivo para fácil alteração:
 
 ```python
-TAXA_FIXA = 5.00              # Taxa base em R$
-VALOR_POR_KM = 2.50           # Custo por km em R$
-VALOR_POR_MINUTO = 0.60       # Custo por minuto em R$
-VELOCIDADE_MEDIA = 30         # Velocidade média em km/h
-LOCALIZACAO_PADRAO = (...)    # Coordenadas padrão
-NOME_LOCAL_PADRAO = "..."     # Nome do local padrão
+BASE_PRICE = 3.00
+PRICE_PER_KM = 1.25
+PRICE_PER_MIN = 0.20
+MINIMUM_FARE = 10.00
+CAR_MODEL = "Toyota Yaris"
 ```
 
-## 🔐 Segurança
+## 🐛 **Suporte**
 
-- Token armazenado no código (em produção, use variáveis de ambiente)
-- User Agent customizado para evitar bloqueios
-- Logging de todos os erros
-- Validação de entrada para todos os comandos
+Se o bot parar de responder:
 
-## 📝 Logs
+1. Verifique se a janela do terminal (preta) está aberta.
+2. Se fechou, abra novamente e rode o comando de execução.
+3. Verifique sua conexão com a internet.
 
-Todos os eventos são registrados com timestamp:
+---
 
-```
-2026-02-09 10:30:45 - __main__ - INFO - 🚀 Bot iniciado com sucesso!
-2026-02-09 10:31:12 - __main__ - INFO - Usuário solicitou rota...
-```
-
-## 🚨 Troubleshooting
-
-### "Origem não encontrada"
-
-- Verifique a grafia do endereço
-- Inclua a cidade no endereço
-- Tente um endereço mais específico (com número)
-
-### "Erro ao conectar ao serviço de localização"
-
-- Verifique sua conexão com internet
-- Aguarde alguns segundos e tente novamente
-- O serviço Nominatim pode ter limite de requisições
-
-### Bot não responde
-
-- Verifique se o token está correto
-- Confira se o bot está rodando (veja mensagem "🚀 Bot iniciado")
-- Reinicie o bot
-- Verifique os logs
-
-## 📄 Licença
-
-Projeto criado para uso profissional em transporte.
-
-## 👨‍💻 Desenvolvido com ❤️
-
-Bot completo para Telegram v20+ em Python
-
-taskkill /F /IM python.exe # para matar o processo do python
+_Desenvolvido para agilizar o dia a dia no trânsito._ 🚘
