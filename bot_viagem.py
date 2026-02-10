@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 import math
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
@@ -19,10 +18,7 @@ load_dotenv()
 # Setup logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -172,28 +168,26 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Determine Multiplier
     multiplier = 1.0
+    text_lower = text.lower()
     condition_name = "Normal"
     
-    if "Chuva" in text or "Noite" in text or "1.2" in text:
+    if "chuva" in text_lower or "noite" in text_lower or "1.2" in text:
         multiplier = 1.2
         condition_name = "Chuva/Noite 🌧️"
-    elif "Trânsito" in text or "1.4" in text:
+    elif "trânsito" in text_lower or "transito" in text_lower or "1.4" in text:
         multiplier = 1.4
         condition_name = "Trânsito Pesado 🚦"
-    elif "Normal" in text:
+    elif "normal" in text_lower or "1.0" in text:
         multiplier = 1.0
         condition_name = "Normal ☀️"
     else:
-        # If user types something else, assume Normal or ask again? 
-        # Let's assume Normal to not block, or ask again. 
-        # Better to ask again for clarity.
         await update.message.reply_text("⚠️ Por favor, selecione uma das opções do menu.")
         return CONDICAO
 
     distance = context.user_data['distance']
     minutes = context.user_data['minutes']
 
-    # Logic: Base R$ 5,50 + (KM * 2,30) + (Min * 0,45)
+    # Logic: Base R$ 3,00 + (KM * 1,25) + (Min * 0,20)
     base_calc = BASE_PRICE + (PRICE_PER_KM * distance) + (PRICE_PER_MIN * minutes)
     
     # Apply Multiplier
@@ -245,17 +239,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🚫 **Operação Cancelada.**", parse_mode="Markdown", reply_markup=reply_markup)
     return ConversationHandler.END
 
-def main():
-    """Start the bot."""
+if __name__ == '__main__':
+    # Start the bot
     token = os.getenv("TELEGRAM_TOKEN")
     if not token or "NOVO_TOKEN_AQUI" in token:
         logger.error("TELEGRAM_TOKEN env var is missing or invalid.")
         print("❌ ERRO CRÍTICO: Token não configurado no arquivo .env!")
-        return
-
-    logger.info("Starting bot...")
-    
-    try:
+    else:
+        print("🚀 Bot rodando localmente...")
         application = ApplicationBuilder().token(token).build()
 
         conv_handler = ConversationHandler(
@@ -274,7 +265,7 @@ def main():
                 ],
                 CONDICAO: [
                     MessageHandler(filters.Regex("^❌ Cancelar$"), cancel),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, calculate_final)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex("^(🚀 Novo Orçamento)$"), calculate_final)
                 ]
             },
             fallbacks=[CommandHandler("cancel", cancel)]
@@ -282,14 +273,5 @@ def main():
         
         application.add_handler(CommandHandler("start", start))
         application.add_handler(conv_handler)
-
-        logger.info("Bot is polling...")
-        print("LOG: Bot is polling... Press Ctrl+C to stop.")
-        application.run_polling()
         
-    except Exception as e:
-        logger.critical("Failed to start bot: %s", e)
-        print(f"LOG: Failed to start: {e}")
-
-if __name__ == "__main__":
-    main()
+        application.run_polling()
