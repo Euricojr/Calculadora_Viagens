@@ -27,9 +27,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants for Calculation
-BASE_PRICE = 5.50
-PRICE_PER_KM = 2.30
-PRICE_PER_MIN = 0.45
+BASE_PRICE = 3.00
+PRICE_PER_KM = 1.25
+PRICE_PER_MIN = 0.20
 MINIMUM_FARE = 10.00
 CAR_MODEL = "Toyota Yaris"
 
