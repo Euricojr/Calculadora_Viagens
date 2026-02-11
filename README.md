@@ -110,4 +110,6 @@ Se o bot parar de responder:
 
 ---
 
+taskkill /F /IM python.exe
+
 _Desenvolvido para agilizar o dia a dia no trânsito._ 🚘
