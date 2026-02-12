@@ -178,13 +178,13 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if "chuva" in text_lower or "noite" in text_lower or "1.2" in text:
         multiplier = 1.2
-        condition_name = "Chuva/Noite 🌧️"
+        condition_name = "Chuva/Noite"
     elif "trânsito" in text_lower or "transito" in text_lower or "1.4" in text:
         multiplier = 1.4
-        condition_name = "Trânsito Pesado 🚦"
+        condition_name = "Trânsito Pesado"
     elif "normal" in text_lower or "1.0" in text:
         multiplier = 1.0
-        condition_name = "Normal ☀️"
+        condition_name = "Normal"
     else:
         await update.message.reply_text("⚠️ Por favor, selecione uma das opções do menu.")
         return CONDICAO
@@ -208,17 +208,26 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     price_fmt = f"{final_price:.2f}".replace('.', ',')
     multiplier_fmt = f"{multiplier}x"
     
-    response = (
-        f"🚘 **ORÇAMENTO PREMIUM** 🚘\n"
-        f"🏎️ _Veículo: {CAR_MODEL}_\n"
-        f"───────────────────\n"
-        f"📏 **Distância:** {distance} km\n"
-        f"⏱️ **Tempo:** {minutes:.0f} min\n"
-        f"📊 **Condição:** {condition_name}\n"
-        f"───────────────────\n"
-        f"💰 **TOTAL: R$ {price_fmt}**\n"
-        f"───────────────────\n"
-        f"_(Tarifa Mínima: R$ {MINIMUM_FARE:.2f} | Fator: {multiplier_fmt})_"
+    # Message 1: Driver Panel (Technical)
+    driver_msg = (
+        f"<b>🚖 PAINEL DO MOTORISTA</b>\n"
+        f"──────────────\n"
+        f"<b>� FINAL: R$ {price_fmt}</b>\n"
+        f"<b>�📏 Dist:</b> {distance} km\n"
+        f"<b>⏱️ Tempo:</b> {minutes:.0f} min\n"
+        f"<b>🌧️ Fator:</b> {multiplier_fmt} ({condition_name})\n"
+        f"──────────────\n"
+        f"<i>(Mínimo: R$ {MINIMUM_FARE:.2f})</i>"
+    )
+
+    # Message 2: Passenger Message (Clean & Polite)
+    passenger_msg = (
+        f"Olá! Segue o orçamento da sua viagem:\n\n"
+        f"<b>R$ {price_fmt}</b>\n\n"
+        f"🚗 <b>Carro:</b> {CAR_MODEL}\n"
+        f"📏 <b>Distância:</b> {distance} km\n"
+        f"⏱️ <b>Tempo Estimado:</b> {minutes:.0f} min\n\n"
+        f"<i>Qualquer dúvida, estou à disposição!</i>"
     )
     
     # Reset Keyboard
@@ -229,7 +238,12 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_persistent=True
     )
 
-    await update.message.reply_text(response, parse_mode="Markdown", reply_markup=reply_markup)
+    # Send Driver Message
+    await update.message.reply_text(driver_msg, parse_mode="HTML")
+
+    # Send Passenger Message
+    await update.message.reply_text(passenger_msg, parse_mode="HTML", reply_markup=reply_markup)
+    
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
