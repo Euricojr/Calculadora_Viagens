@@ -2,6 +2,7 @@ import logging
 import os
 import math
 from dotenv import load_dotenv
+import re
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder,
@@ -21,6 +22,10 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Button Constants
+BTN_NOVO_ORCAMENTO = "🚀 Novo Orçamento"
+BTN_CANCELAR = "❌ Cancelar"
 
 # Constants for Calculation
 BASE_PRICE = 3.00
@@ -47,7 +52,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-    keyboard = [[KeyboardButton("🚀 Novo Orçamento")]]
+    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
         resize_keyboard=True, 
@@ -57,7 +62,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 **Bot de Viagens Premium**\n\n"
         f"🚗 Carro: **{CAR_MODEL}**\n"
-        "Toque no botão **'🚀 Novo Orçamento'** abaixo para começar.",
+        f"Toque no botão **'{BTN_NOVO_ORCAMENTO}'** abaixo para começar.",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
@@ -66,7 +71,7 @@ async def novo_orcamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Initiates the budget calculation flow."""
     logger.info("User requested new budget.")
     
-    keyboard = [[KeyboardButton("❌ Cancelar")]]
+    keyboard = [[KeyboardButton(BTN_CANCELAR)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
         resize_keyboard=True, 
@@ -84,7 +89,7 @@ async def novo_orcamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the distance input."""
     text = update.message.text
-    if text == "❌ Cancelar":
+    if text == BTN_CANCELAR:
         return await cancel(update, context)
         
     try:
@@ -98,7 +103,7 @@ async def get_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['distance'] = distance
         logger.info("Distance: %.2f km", distance)
 
-        keyboard = [[KeyboardButton("❌ Cancelar")]]
+        keyboard = [[KeyboardButton(BTN_CANCELAR)]]
         reply_markup = ReplyKeyboardMarkup(
             keyboard, 
             resize_keyboard=True,
@@ -121,7 +126,7 @@ async def get_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the time input."""
     text = update.message.text
-    if text == "❌ Cancelar":
+    if text == BTN_CANCELAR:
         return await cancel(update, context)
 
     try:
@@ -140,7 +145,7 @@ async def get_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [KeyboardButton("☀️ Normal (1.0x)")],
             [KeyboardButton("🌧️ Chuva/Noite (1.2x)")],
             [KeyboardButton("🚦 Trânsito Pesado (1.4x)")],
-            [KeyboardButton("❌ Cancelar")]
+            [KeyboardButton(BTN_CANCELAR)]
         ]
         reply_markup = ReplyKeyboardMarkup(
             keyboard, 
@@ -163,7 +168,7 @@ async def get_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Calculates the final price based on condition."""
     text = update.message.text
-    if text == "❌ Cancelar":
+    if text == BTN_CANCELAR:
         return await cancel(update, context)
 
     # Determine Multiplier
@@ -217,7 +222,7 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     # Reset Keyboard
-    keyboard = [[KeyboardButton("🚀 Novo Orçamento")]]
+    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
         resize_keyboard=True, 
@@ -230,7 +235,7 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancels and ends the conversation."""
     logger.info("User canceled conversation.")
-    keyboard = [[KeyboardButton("🚀 Novo Orçamento")]]
+    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
         resize_keyboard=True, 
@@ -251,21 +256,21 @@ if __name__ == '__main__':
 
         conv_handler = ConversationHandler(
             entry_points=[
-                MessageHandler(filters.Regex("^🚀 Novo Orçamento$"), novo_orcamento),
+                MessageHandler(filters.Regex(f"^{re.escape(BTN_NOVO_ORCAMENTO)}$"), novo_orcamento),
                 CommandHandler("novo", novo_orcamento)
             ],
             states={
                 DISTANCIA: [
-                    MessageHandler(filters.Regex("^❌ Cancelar$"), cancel),
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, get_distance)
                 ],
                 TEMPO: [
-                    MessageHandler(filters.Regex("^❌ Cancelar$"), cancel),
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, get_time)
                 ],
                 CONDICAO: [
-                    MessageHandler(filters.Regex("^❌ Cancelar$"), cancel),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex("^(🚀 Novo Orçamento)$"), calculate_final)
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(f"^({re.escape(BTN_NOVO_ORCAMENTO)})$"), calculate_final)
                 ]
             },
             fallbacks=[CommandHandler("cancel", cancel)]
