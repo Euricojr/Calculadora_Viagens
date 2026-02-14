@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Button Constants
 BTN_NOVO_ORCAMENTO = "🚀 Novo Orçamento"
 BTN_CANCELAR = "❌ Cancelar"
+BTN_CONSUMO = "⛽ Calcular Consumo"
 
 # Constants for Calculation
 BASE_PRICE = 3.00
@@ -35,7 +36,7 @@ MINIMUM_FARE = 10.00
 CAR_MODEL = "Toyota Yaris"
 
 # Conversation States
-DISTANCIA, TEMPO, CONDICAO = range(3)
+DISTANCIA, TEMPO, CONDICAO, CON_LITROS, CON_KM = range(5)
 
 def round_to_nearest_50_cents(amount):
     """Rounds the amount to the nearest 0.50"""
@@ -53,6 +54,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
     keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO)]]
+    # add consumo button to main menu
+    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
         resize_keyboard=True, 
@@ -230,8 +233,8 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<i>Qualquer dúvida, estou à disposição!</i>"
     )
     
-    # Reset Keyboard
-    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO)]]
+    # Reset Keyboard (show both options)
+    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
         resize_keyboard=True, 
@@ -246,10 +249,109 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return ConversationHandler.END
 
+
+async def consumo_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Starts the fuel consumption flow (liters -> km)."""
+    logger.info("User started consumo flow.")
+
+    keyboard = [[KeyboardButton(BTN_CANCELAR)]]
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
+    await update.message.reply_text(
+        "⛽ **Consumo de Combustível**\n\n"
+        "Quantos litros foram abastecidos? (ex: 40 ou 40.5)",
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
+    return CON_LITROS
+
+
+async def consumo_get_liters(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == BTN_CANCELAR:
+        return await cancel(update, context)
+
+    try:
+        clean_text = text.replace(',', '.')
+        liters = float(clean_text)
+        if liters <= 0:
+            await update.message.reply_text("⛔ Valor inválido. Informe um número maior que zero.")
+            return CON_LITROS
+
+        context.user_data['liters'] = liters
+
+        keyboard = [[KeyboardButton(BTN_CANCELAR)]]
+        reply_markup = ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+
+        await update.message.reply_text(
+            f"✅ Litros: {liters}\n\nQuanto KM foram rodados desde esse abastecimento?",
+            reply_markup=reply_markup
+        )
+        return CON_KM
+
+    except ValueError:
+        await update.message.reply_text("⚠️ Digite apenas números (ex: 40.5).")
+        return CON_LITROS
+
+
+async def consumo_get_km(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == BTN_CANCELAR:
+        return await cancel(update, context)
+
+    try:
+        clean_text = text.replace(',', '.')
+        km = float(clean_text)
+        if km <= 0:
+            await update.message.reply_text("⛔ Valor inválido. Informe um número maior que zero.")
+            return CON_KM
+
+        liters = context.user_data.get('liters')
+        if not liters:
+            await update.message.reply_text("⚠️ Não encontrei os litros. Reinicie com /consumo.")
+            return ConversationHandler.END
+
+        km_per_l = km / liters
+        liters_per_100 = (liters * 100) / km
+
+        kmpl_fmt = f"{km_per_l:.2f}".replace('.', ',')
+        l100_fmt = f"{liters_per_100:.2f}".replace('.', ',')
+
+        msg = (
+            f"📊 Resultado do Consumo:\n\n"
+            f"🚗 Kilômetros rodados: {km} km\n"
+            f"⛽ Litros: {liters}\n\n"
+            f"📈 Consumo: <b>{kmpl_fmt} km/l</b>\n"
+            f"📉 Consumo médio: <b>{l100_fmt} L/100km</b>\n"
+        )
+
+        # Reset keyboard (show both options)
+        keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO)]]
+        reply_markup = ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True,
+            is_persistent=True
+        )
+
+        await update.message.reply_text(msg, parse_mode="HTML", reply_markup=reply_markup)
+        return ConversationHandler.END
+
+    except ValueError:
+        await update.message.reply_text("⚠️ Digite apenas números (ex: 150).")
+        return CON_KM
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancels and ends the conversation."""
     logger.info("User canceled conversation.")
-    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO)]]
+    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
         resize_keyboard=True, 
@@ -290,7 +392,27 @@ if __name__ == '__main__':
             fallbacks=[CommandHandler("cancel", cancel)]
         )
         
+        # Conversation handler for consumo (km/l)
+        conv_consumo = ConversationHandler(
+            entry_points=[
+                CommandHandler("consumo", consumo_start),
+                MessageHandler(filters.Regex(f"^{re.escape(BTN_CONSUMO)}$"), consumo_start)
+            ],
+            states={
+                CON_LITROS: [
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, consumo_get_liters)
+                ],
+                CON_KM: [
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, consumo_get_km)
+                ]
+            },
+            fallbacks=[CommandHandler("cancel", cancel)]
+        )
+
         application.add_handler(CommandHandler("start", start))
         application.add_handler(conv_handler)
+        application.add_handler(conv_consumo)
         
         application.run_polling()
