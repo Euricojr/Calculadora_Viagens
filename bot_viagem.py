@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 BTN_NOVO_ORCAMENTO = "🚀 Novo Orçamento"
 BTN_CANCELAR = "❌ Cancelar"
 BTN_CONSUMO = "⛽ Calcular Consumo"
+BTN_RESUMO = "📅 Resumo Diário"
 
 # Constants for Calculation
 BASE_PRICE = 3.00
@@ -36,7 +37,7 @@ MINIMUM_FARE = 10.00
 CAR_MODEL = "Toyota Yaris"
 
 # Conversation States
-DISTANCIA, TEMPO, CONDICAO, CON_LITROS, CON_KM = range(5)
+DISTANCIA, TEMPO, CONDICAO, CON_LITROS, CON_KM, DIARIA_RIDAS, DIARIA_GANHO, DIARIA_COMB = range(8)
 
 def round_to_nearest_50_cents(amount):
     """Rounds the amount to the nearest 0.50"""
@@ -53,9 +54,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO)]]
-    # add consumo button to main menu
-    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO)]]
+    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO), KeyboardButton(BTN_RESUMO)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
         resize_keyboard=True, 
@@ -250,6 +249,141 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def diario_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Inicia o fluxo de resumo diário (corridas, ganho, combustível)."""
+    logger.info("User started diario flow.")
+
+    keyboard = [[KeyboardButton(BTN_CANCELAR)]]
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
+    await update.message.reply_text(
+        "📅 **Resumo Diário**\n\n"
+        "Quantas corridas você fez hoje? (ex: 12)",
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
+    return DIARIA_RIDAS
+
+
+async def diario_get_rides(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == BTN_CANCELAR:
+        return await cancel(update, context)
+
+    try:
+        rides = int(text)
+        if rides < 0:
+            await update.message.reply_text("⛔ Valor inválido. Informe um número inteiro não-negativo.")
+            return DIARIA_RIDAS
+
+        context.user_data['diaria_rides'] = rides
+
+        keyboard = [[KeyboardButton(BTN_CANCELAR)]]
+        reply_markup = ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+
+        await update.message.reply_text(
+            f"✅ Corridas: {rides}\n\nQuanto você ganhou no total hoje? (R$, ex: 150.50)",
+            reply_markup=reply_markup
+        )
+        return DIARIA_GANHO
+
+    except ValueError:
+        await update.message.reply_text("⚠️ Digite apenas um número inteiro (ex: 12).")
+        return DIARIA_RIDAS
+
+
+async def diario_get_earned(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == BTN_CANCELAR:
+        return await cancel(update, context)
+
+    try:
+        clean = text.replace(',', '.')
+        earned = float(clean)
+        if earned < 0:
+            await update.message.reply_text("⛔ Valor inválido. Informe um número não-negativo.")
+            return DIARIA_GANHO
+
+        context.user_data['diaria_earned'] = earned
+
+        keyboard = [[KeyboardButton(BTN_CANCELAR)]]
+        reply_markup = ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+
+        await update.message.reply_text(
+            f"✅ Ganho total: R$ {earned:.2f}\n\nQuanto você gastou com combustível hoje? (R$, ex: 60.5)",
+            reply_markup=reply_markup
+        )
+        return DIARIA_COMB
+
+    except ValueError:
+        await update.message.reply_text("⚠️ Digite apenas números (ex: 150.50).")
+        return DIARIA_GANHO
+
+
+async def diario_get_fuel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == BTN_CANCELAR:
+        return await cancel(update, context)
+
+    try:
+        clean = text.replace(',', '.')
+        fuel_spent = float(clean)
+        if fuel_spent < 0:
+            await update.message.reply_text("⛔ Valor inválido. Informe um número não-negativo.")
+            return DIARIA_COMB
+
+        rides = context.user_data.get('diaria_rides', 0)
+        earned = context.user_data.get('diaria_earned', 0.0)
+
+        profit = earned - fuel_spent
+        profit_per_ride = profit / rides if rides > 0 else profit
+        margin_pct = (profit / earned * 100) if earned > 0 else 0.0
+
+        # Format numbers for pt-BR style
+        earned_fmt = f"{earned:.2f}".replace('.', ',')
+        fuel_fmt = f"{fuel_spent:.2f}".replace('.', ',')
+        profit_fmt = f"{profit:.2f}".replace('.', ',')
+        profit_per_fmt = f"{profit_per_ride:.2f}".replace('.', ',')
+        margin_fmt = f"{margin_pct:.2f}".replace('.', ',')
+
+        msg = (
+            f"📊 <b>Resumo Diário</b>\n\n"
+            f"🚖 Corridas: <b>{rides}</b>\n"
+            f"💰 Ganho total: <b>R$ {earned_fmt}</b>\n"
+            f"⛽ Combustível: <b>R$ {fuel_fmt}</b>\n\n"
+            f"🧾 Lucro líquido: <b>R$ {profit_fmt}</b>\n"
+            f"📈 Lucro por corrida: <b>R$ {profit_per_fmt}</b>\n"
+            f"📊 Margem: <b>{margin_fmt}%</b>\n"
+        )
+
+        # Reset keyboard (show main options)
+        keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO), KeyboardButton(BTN_RESUMO)]]
+        reply_markup = ReplyKeyboardMarkup(
+            keyboard,
+            resize_keyboard=True,
+            is_persistent=True
+        )
+
+        await update.message.reply_text(msg, parse_mode="HTML", reply_markup=reply_markup)
+        return ConversationHandler.END
+
+    except ValueError:
+        await update.message.reply_text("⚠️ Digite apenas números (ex: 60.50).")
+        return DIARIA_COMB
+
+
 async def consumo_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Starts the fuel consumption flow (liters -> km)."""
     logger.info("User started consumo flow.")
@@ -393,6 +527,29 @@ if __name__ == '__main__':
         )
         
         # Conversation handler for consumo (km/l)
+        # Conversation handler for diario (resumo diário)
+        conv_diario = ConversationHandler(
+            entry_points=[
+                CommandHandler("diario", diario_start),
+                MessageHandler(filters.Regex(f"^{re.escape(BTN_RESUMO)}$"), diario_start)
+            ],
+            states={
+                DIARIA_RIDAS: [
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, diario_get_rides)
+                ],
+                DIARIA_GANHO: [
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, diario_get_earned)
+                ],
+                DIARIA_COMB: [
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, diario_get_fuel)
+                ]
+            },
+            fallbacks=[CommandHandler("cancel", cancel)]
+        )
+
         conv_consumo = ConversationHandler(
             entry_points=[
                 CommandHandler("consumo", consumo_start),
@@ -413,6 +570,7 @@ if __name__ == '__main__':
 
         application.add_handler(CommandHandler("start", start))
         application.add_handler(conv_handler)
+        application.add_handler(conv_diario)
         application.add_handler(conv_consumo)
         
         application.run_polling()
