@@ -232,8 +232,8 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<i>Qualquer dúvida, estou à disposição!</i>"
     )
     
-    # Reset Keyboard (show both options)
-    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO)]]
+    # Reset Keyboard (show main options)
+    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO), KeyboardButton(BTN_RESUMO)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
         resize_keyboard=True, 
@@ -467,8 +467,8 @@ async def consumo_get_km(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📉 Consumo médio: <b>{l100_fmt} L/100km</b>\n"
         )
 
-        # Reset keyboard (show both options)
-        keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO)]]
+        # Reset keyboard (show main options)
+        keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO), KeyboardButton(BTN_RESUMO)]]
         reply_markup = ReplyKeyboardMarkup(
             keyboard,
             resize_keyboard=True,
@@ -485,7 +485,7 @@ async def consumo_get_km(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancels and ends the conversation."""
     logger.info("User canceled conversation.")
-    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO)]]
+    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO), KeyboardButton(BTN_RESUMO)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
         resize_keyboard=True, 
@@ -512,14 +512,17 @@ if __name__ == '__main__':
             states={
                 DISTANCIA: [
                     MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_RESUMO)}$"), diario_start),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, get_distance)
                 ],
                 TEMPO: [
                     MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_RESUMO)}$"), diario_start),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, get_time)
                 ],
                 CONDICAO: [
                     MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_RESUMO)}$"), diario_start),
                     MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(f"^({re.escape(BTN_NOVO_ORCAMENTO)})$"), calculate_final)
                 ]
             },
@@ -558,10 +561,12 @@ if __name__ == '__main__':
             states={
                 CON_LITROS: [
                     MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_RESUMO)}$"), diario_start),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, consumo_get_liters)
                 ],
                 CON_KM: [
                     MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
+                    MessageHandler(filters.Regex(f"^{re.escape(BTN_RESUMO)}$"), diario_start),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, consumo_get_km)
                 ]
             },
