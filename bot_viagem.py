@@ -3,7 +3,7 @@ import os
 import math
 from dotenv import load_dotenv
 import re
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -11,6 +11,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
     ConversationHandler,
+    CallbackQueryHandler,
 )
 
 # Load environment variables
@@ -54,17 +55,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO), KeyboardButton(BTN_RESUMO)]]
-    reply_markup = ReplyKeyboardMarkup(
-        keyboard, 
-        resize_keyboard=True, 
-        is_persistent=True
-    )
+    keyboard = [
+        [InlineKeyboardButton("🚀 Novo Orçamento", callback_data="novo_orcamento")],
+        [InlineKeyboardButton("⛽ Calcular Consumo", callback_data="consumo")],
+        [InlineKeyboardButton("📅 Resumo Diário", callback_data="diario")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
         "👋 **Bot de Viagens Premium**\n\n"
         f"🚗 Carro: **{CAR_MODEL}**\n"
-        f"Toque no botão **'{BTN_NOVO_ORCAMENTO}'** abaixo para começar.",
+        f"Toque no botão **'🚀 Novo Orçamento'** abaixo para começar.",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
@@ -73,6 +74,9 @@ async def novo_orcamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Initiates the budget calculation flow."""
     logger.info("User requested new budget.")
     
+    query = update.callback_query
+    await query.answer()
+
     keyboard = [[KeyboardButton(BTN_CANCELAR)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard, 
@@ -80,7 +84,7 @@ async def novo_orcamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
         one_time_keyboard=True
     )
 
-    await update.message.reply_text(
+    await query.message.reply_text(
         "📏 **Qual a Distância?**\n\n"
         "Digite quantos **KM** tem a corrida (ex: 4.5 ou 12).",
         parse_mode="Markdown",
@@ -143,17 +147,14 @@ async def get_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info("Time: %.2f min", minutes)
         
         # Ask for Condition
+        # Ask for Condition
         keyboard = [
-            [KeyboardButton("☀️ Normal (1.0x)")],
-            [KeyboardButton("🌧️ Chuva/Noite (1.2x)")],
-            [KeyboardButton("🚦 Trânsito Pesado (1.4x)")],
-            [KeyboardButton(BTN_CANCELAR)]
+            [InlineKeyboardButton("☀️ Normal (1.0x)", callback_data="normal")],
+            [InlineKeyboardButton("🌧️ Chuva/Noite (1.2x)", callback_data="chuva")],
+            [InlineKeyboardButton("🚦 Trânsito Pesado (1.4x)", callback_data="transito")],
+            [InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")]
         ]
-        reply_markup = ReplyKeyboardMarkup(
-            keyboard, 
-            resize_keyboard=True, 
-            one_time_keyboard=True
-        )
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
             "🌤️ **Como está o trânsito/clima?**\n\n"
@@ -169,26 +170,33 @@ async def get_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Calculates the final price based on condition."""
-    text = update.message.text
-    if text == BTN_CANCELAR:
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    if data == "cancelar":
+        # Delete the previous message to clean up chat or just emit cancel
+        # We can reuse the cancel mechanism but need to adapt it since cancel() expects update.message usually
+        # But our cancel() uses update.message.reply_text. 
+        # Let's direct call cancel taking care of update
         return await cancel(update, context)
 
     # Determine Multiplier
     multiplier = 1.0
-    text_lower = text.lower()
     condition_name = "Normal"
     
-    if "chuva" in text_lower or "noite" in text_lower or "1.2" in text:
+    if data == "chuva":
         multiplier = 1.2
         condition_name = "Chuva/Noite"
-    elif "trânsito" in text_lower or "transito" in text_lower or "1.4" in text:
+    elif data == "transito":
         multiplier = 1.4
         condition_name = "Trânsito Pesado"
-    elif "normal" in text_lower or "1.0" in text:
+    elif data == "normal":
         multiplier = 1.0
         condition_name = "Normal"
     else:
-        await update.message.reply_text("⚠️ Por favor, selecione uma das opções do menu.")
+        await query.message.reply_text("⚠️ Opção inválida.")
         return CONDICAO
 
     distance = context.user_data['distance']
@@ -233,18 +241,19 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     # Reset Keyboard (show main options)
-    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO), KeyboardButton(BTN_RESUMO)]]
-    reply_markup = ReplyKeyboardMarkup(
-        keyboard, 
-        resize_keyboard=True, 
-        is_persistent=True
-    )
+    # Reset Keyboard (show main options)
+    keyboard = [
+        [InlineKeyboardButton("🚀 Novo Orçamento", callback_data="novo_orcamento")],
+        [InlineKeyboardButton("⛽ Calcular Consumo", callback_data="consumo")],
+        [InlineKeyboardButton("📅 Resumo Diário", callback_data="diario")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
     # Send Driver Message
-    await update.message.reply_text(driver_msg, parse_mode="HTML")
+    await query.message.reply_text(driver_msg, parse_mode="HTML")
 
     # Send Passenger Message
-    await update.message.reply_text(passenger_msg, parse_mode="HTML", reply_markup=reply_markup)
+    await query.message.reply_text(passenger_msg, parse_mode="HTML", reply_markup=reply_markup)
     
     return ConversationHandler.END
 
@@ -253,6 +262,13 @@ async def diario_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Inicia o fluxo de resumo diário (corridas, ganho, combustível)."""
     logger.info("User started diario flow.")
 
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        reply_method = query.message.reply_text
+    else:
+        reply_method = update.message.reply_text
+
     keyboard = [[KeyboardButton(BTN_CANCELAR)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard,
@@ -260,7 +276,7 @@ async def diario_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         one_time_keyboard=True
     )
 
-    await update.message.reply_text(
+    await reply_method(
         "📅 **Resumo Diário**\n\n"
         "Quantas corridas você fez hoje? (ex: 12)",
         parse_mode="Markdown",
@@ -369,12 +385,8 @@ async def diario_get_fuel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         # Reset keyboard (show main options)
-        keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO), KeyboardButton(BTN_RESUMO)]]
-        reply_markup = ReplyKeyboardMarkup(
-            keyboard,
-            resize_keyboard=True,
-            is_persistent=True
-        )
+        keyboard = [[InlineKeyboardButton("🚀 Novo Orçamento", callback_data="novo_orcamento")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(msg, parse_mode="HTML", reply_markup=reply_markup)
         return ConversationHandler.END
@@ -388,6 +400,13 @@ async def consumo_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Starts the fuel consumption flow (liters -> km)."""
     logger.info("User started consumo flow.")
 
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        reply_method = query.message.reply_text
+    else:
+        reply_method = update.message.reply_text
+
     keyboard = [[KeyboardButton(BTN_CANCELAR)]]
     reply_markup = ReplyKeyboardMarkup(
         keyboard,
@@ -395,7 +414,7 @@ async def consumo_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         one_time_keyboard=True
     )
 
-    await update.message.reply_text(
+    await reply_method(
         "⛽ **Consumo de Combustível**\n\n"
         "Quantos litros foram abastecidos? (ex: 40 ou 40.5)",
         parse_mode="Markdown",
@@ -468,12 +487,13 @@ async def consumo_get_km(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         # Reset keyboard (show main options)
-        keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO), KeyboardButton(BTN_RESUMO)]]
-        reply_markup = ReplyKeyboardMarkup(
-            keyboard,
-            resize_keyboard=True,
-            is_persistent=True
-        )
+        # Reset keyboard (show main options)
+        keyboard = [
+            [InlineKeyboardButton("🚀 Novo Orçamento", callback_data="novo_orcamento")],
+            [InlineKeyboardButton("⛽ Calcular Consumo", callback_data="consumo")],
+            [InlineKeyboardButton("📅 Resumo Diário", callback_data="diario")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(msg, parse_mode="HTML", reply_markup=reply_markup)
         return ConversationHandler.END
@@ -485,13 +505,19 @@ async def consumo_get_km(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancels and ends the conversation."""
     logger.info("User canceled conversation.")
-    keyboard = [[KeyboardButton(BTN_NOVO_ORCAMENTO), KeyboardButton(BTN_CONSUMO), KeyboardButton(BTN_RESUMO)]]
-    reply_markup = ReplyKeyboardMarkup(
-        keyboard, 
-        resize_keyboard=True, 
-        is_persistent=True
-    )
-    await update.message.reply_text("🚫 **Operação Cancelada.**", parse_mode="Markdown", reply_markup=reply_markup)
+    
+    if update.callback_query:
+        reply_method = update.callback_query.message.reply_text
+    else:
+        reply_method = update.message.reply_text
+
+    keyboard = [
+        [InlineKeyboardButton("🚀 Novo Orçamento", callback_data="novo_orcamento")],
+        [InlineKeyboardButton("⛽ Calcular Consumo", callback_data="consumo")],
+        [InlineKeyboardButton("📅 Resumo Diário", callback_data="diario")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await reply_method("🚫 **Operação Cancelada.**", parse_mode="Markdown", reply_markup=reply_markup)
     return ConversationHandler.END
 
 if __name__ == '__main__':
@@ -506,8 +532,7 @@ if __name__ == '__main__':
 
         conv_handler = ConversationHandler(
             entry_points=[
-                MessageHandler(filters.Regex(f"^{re.escape(BTN_NOVO_ORCAMENTO)}$"), novo_orcamento),
-                CommandHandler("novo", novo_orcamento)
+                CallbackQueryHandler(novo_orcamento, pattern="^novo_orcamento$")
             ],
             states={
                 DISTANCIA: [
@@ -521,9 +546,7 @@ if __name__ == '__main__':
                     MessageHandler(filters.TEXT & ~filters.COMMAND, get_time)
                 ],
                 CONDICAO: [
-                    MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
-                    MessageHandler(filters.Regex(f"^{re.escape(BTN_RESUMO)}$"), diario_start),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(f"^({re.escape(BTN_NOVO_ORCAMENTO)})$"), calculate_final)
+                    CallbackQueryHandler(calculate_final)
                 ]
             },
             fallbacks=[CommandHandler("cancel", cancel)]
@@ -533,8 +556,8 @@ if __name__ == '__main__':
         # Conversation handler for diario (resumo diário)
         conv_diario = ConversationHandler(
             entry_points=[
-                CommandHandler("diario", diario_start),
-                MessageHandler(filters.Regex(f"^{re.escape(BTN_RESUMO)}$"), diario_start)
+                CallbackQueryHandler(diario_start, pattern="^diario$"),
+                CommandHandler("diario", diario_start)
             ],
             states={
                 DIARIA_RIDAS: [
@@ -555,8 +578,8 @@ if __name__ == '__main__':
 
         conv_consumo = ConversationHandler(
             entry_points=[
-                CommandHandler("consumo", consumo_start),
-                MessageHandler(filters.Regex(f"^{re.escape(BTN_CONSUMO)}$"), consumo_start)
+                CallbackQueryHandler(consumo_start, pattern="^consumo$"),
+                CommandHandler("consumo", consumo_start)
             ],
             states={
                 CON_LITROS: [
