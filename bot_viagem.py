@@ -63,11 +63,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "👋 **Bot de Viagens Premium**\n\n"
-        f"🚗 Carro: **{CAR_MODEL}**\n"
-        f"Toque no botão **'🚀 Novo Orçamento'** abaixo para começar.",
+        "👋 <b>Olá, tudo bem?</b>\n\n"
+        "Sou o seu <b>Assistente Pessoal de Corridas</b>.\n"
+        "Tenho a funcionalidade de otimizar a sua rotina no volante:\n\n"
+        "🔹 Calculo orçamentos rápidos e justos (distância, tempo e clima)\n"
+        "🔹 Ajudo a monitorar o consumo do seu veículo\n"
+        "🔹 Organizo o seu resumo financeiro diário\n\n"
+        f"� <b>Veículo configurado:</b> {CAR_MODEL}\n\n"
+        "👇 <i>Selecione uma das opções abaixo para começarmos:</i>",
         reply_markup=reply_markup,
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 async def novo_orcamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
