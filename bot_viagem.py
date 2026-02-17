@@ -30,15 +30,23 @@ BTN_CANCELAR = "❌ Cancelar"
 BTN_CONSUMO = "⛽ Calcular Consumo"
 BTN_RESUMO = "📅 Resumo Diário"
 
-# Constants for Calculation
-BASE_PRICE = 3.00
-PRICE_PER_KM = 1.25
-PRICE_PER_MIN = 0.20
-MINIMUM_FARE = 10.00
-CAR_MODEL = "Toyota Yaris"
+# Constants for Calculation - Padrão
+BASE_PRICE_PADRAO = 3.00
+PRICE_PER_KM_PADRAO = 1.25
+PRICE_PER_MIN_PADRAO = 0.20
+MINIMUM_FARE_PADRAO = 10.00
+
+# Constants for Calculation - Executivo
+TAXA_BASE_EXEC = 5.00
+VALOR_KM_EXEC = 1.50
+VALOR_MINUTO_EXEC = 0.25
+TARIFA_MINIMA_EXEC = 15.00
+
+CAR_MODEL = "Toyota Yaris Hatch XL"
 
 # Conversation States
-DISTANCIA, TEMPO, CONDICAO, CON_LITROS, CON_KM, DIARIA_RIDAS, DIARIA_GANHO, DIARIA_COMB = range(8)
+# Added CATEGORIA as the first state
+CATEGORIA, DISTANCIA, TEMPO, CONDICAO, CON_LITROS, CON_KM, DIARIA_RIDAS, DIARIA_GANHO, DIARIA_COMB = range(9)
 
 def round_to_nearest_50_cents(amount):
     """Rounds the amount to the nearest 0.50"""
@@ -69,7 +77,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔹 Calculo orçamentos rápidos e justos (distância, tempo e clima)\n"
         "🔹 Ajudo a monitorar o consumo do seu veículo\n"
         "🔹 Organizo o seu resumo financeiro diário\n\n"
-        f"� <b>Veículo configurado:</b> {CAR_MODEL}\n\n"
+        f"🚘 <b>Veículo configurado:</b> {CAR_MODEL}\n\n"
         "👇 <i>Selecione uma das opções abaixo para começarmos:</i>",
         reply_markup=reply_markup,
         parse_mode="HTML"
@@ -81,11 +89,45 @@ async def novo_orcamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     query = update.callback_query
     await query.answer()
+    # Ask for category first (Padrão or Executivo) using inline buttons
+    keyboard = [
+        [InlineKeyboardButton('🚘 Padrão', callback_data='categoria_padrao'), InlineKeyboardButton('💼 Executivo', callback_data='categoria_exec')],
+        [InlineKeyboardButton('❌ Cancelar', callback_data='cancelar')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.message.reply_text(
+        '🚘 <b>Qual a categoria da corrida?</b>',
+        parse_mode="HTML",
+        reply_markup=reply_markup
+    )
+    return CATEGORIA
+
+
+async def receber_categoria(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recebe a categoria escolhida via callback_query e segue para pedir distância."""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    if data == 'cancelar':
+        return await cancel(update, context)
+
+    if data == 'categoria_padrao':
+        categoria = 'Padrão'
+    elif data == 'categoria_exec':
+        categoria = 'Executivo'
+    else:
+        await query.message.reply_text('⚠️ Opção inválida. Escolha uma categoria válida.')
+        return CATEGORIA
+
+    context.user_data['categoria'] = categoria
+    logger.info("Categoria escolhida: %s", categoria)
 
     keyboard = [[KeyboardButton(BTN_CANCELAR)]]
     reply_markup = ReplyKeyboardMarkup(
-        keyboard, 
-        resize_keyboard=True, 
+        keyboard,
+        resize_keyboard=True,
         one_time_keyboard=True
     )
 
@@ -207,14 +249,27 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     distance = context.user_data['distance']
     minutes = context.user_data['minutes']
 
-    # Logic: Base R$ 3,00 + (KM * 1,25) + (Min * 0,20)
-    base_calc = BASE_PRICE + (PRICE_PER_KM * distance) + (PRICE_PER_MIN * minutes)
-    
+    # Select pricing variables based on category
+    categoria = context.user_data.get('categoria', 'Padrão')
+    if categoria == 'Executivo':
+        base_price = TAXA_BASE_EXEC
+        price_per_km = VALOR_KM_EXEC
+        price_per_min = VALOR_MINUTO_EXEC
+        minimum_fare = TARIFA_MINIMA_EXEC
+    else:
+        base_price = BASE_PRICE_PADRAO
+        price_per_km = PRICE_PER_KM_PADRAO
+        price_per_min = PRICE_PER_MIN_PADRAO
+        minimum_fare = MINIMUM_FARE_PADRAO
+
+    # Calculation: base + km * price + min * price
+    base_calc = base_price + (price_per_km * distance) + (price_per_min * minutes)
+
     # Apply Multiplier
     total_with_multiplier = base_calc * multiplier
-    
+
     # Apply Minimum Fare
-    final_raw = max(total_with_multiplier, MINIMUM_FARE)
+    final_raw = max(total_with_multiplier, minimum_fare)
     
     # Round to nearest 0.50
     final_price = round_to_nearest_50_cents(final_raw)
@@ -227,19 +282,20 @@ async def calculate_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     driver_msg = (
         f"<b>🚖 PAINEL DO MOTORISTA</b>\n"
         f"──────────────\n"
-        f"<b>� FINAL: R$ {price_fmt}</b>\n"
-        f"<b>�📏 Dist:</b> {distance} km\n"
-        f"<b>⏱️ Tempo:</b> {minutes:.0f} min\n"
-        f"<b>🌧️ Fator:</b> {multiplier_fmt} ({condition_name})\n"
+        f"<b>💵 FINAL: R$ {price_fmt}</b>\n"
+        f"📏 Dist: {distance} km\n"
+        f"⏱️ Tempo: {minutes:.0f} min\n"
+        f"🌧️ Fator: {multiplier_fmt} ({condition_name})\n"
+        f"Veículo: {CAR_MODEL} ({categoria})\n"
         f"──────────────\n"
-        f"<i>(Mínimo: R$ {MINIMUM_FARE:.2f})</i>"
+        f"<i>(Mínimo: R$ {minimum_fare:.2f})</i>"
     )
 
     # Message 2: Passenger Message (Clean & Polite)
     passenger_msg = (
         f"Olá! Segue o orçamento da sua viagem:\n\n"
         f"<b>R$ {price_fmt}</b>\n\n"
-        f"🚗 <b>Carro:</b> {CAR_MODEL}\n"
+        f"🚗 <b>Veículo:</b> {CAR_MODEL} ({categoria})\n"
         f"📏 <b>Distância:</b> {distance} km\n"
         f"⏱️ <b>Tempo Estimado:</b> {minutes:.0f} min\n\n"
         f"<i>Qualquer dúvida, estou à disposição!</i>"
@@ -540,6 +596,11 @@ if __name__ == '__main__':
                 CallbackQueryHandler(novo_orcamento, pattern="^novo_orcamento$")
             ],
             states={
+                CATEGORIA: [
+                    CallbackQueryHandler(receber_categoria, pattern='^categoria_'),
+                    CallbackQueryHandler(cancel, pattern='^cancelar$'),
+                    CallbackQueryHandler(diario_start, pattern='^diario$')
+                ],
                 DISTANCIA: [
                     MessageHandler(filters.Regex(f"^{re.escape(BTN_CANCELAR)}$"), cancel),
                     MessageHandler(filters.Regex(f"^{re.escape(BTN_RESUMO)}$"), diario_start),
